@@ -1,0 +1,26 @@
+name: Sync and Filter Property Finder Feed
+
+on:
+  schedule:
+    - cron: '0 2 * * *' 
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+    - name: Set up Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Install Network Dependencies
+      run: pip install requests
+    - name: Run Filter Script
+      run: python filter_feed.py
+    - name: Commit and Push Clean Feed to GitHub
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Automated Feed Sync: Filtered Diamond Properties"
+        file_pattern: 'clean_display_feed.csv'
