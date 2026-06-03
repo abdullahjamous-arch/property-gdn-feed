@@ -28,12 +28,14 @@ def main():
         try:
             segment_idx = headers.index('client_segment')
             depth_idx = headers.index('listings_depth')
-            type_idx = headers.index('listing_type') # <-- Added for targeting Buy listings
+            type_idx = headers.index('listing_type') 
         except ValueError:
             print(f"Columns not found. Headers: {headers}")
             return
 
-        ads_headers = ["ID", "Item title", "Final URL", "Image URL", "Item description", "Price"]
+        # STANDARD GOOGLE SPECIFICATION HEADERS (Lowercase, no spaces)
+        ads_headers = ["id", "title", "link", "image_link", "description", "price"]
+        
         id_idx = headers.index('id') if 'id' in headers else 0
         title_idx = headers.index('title') if 'title' in headers else 1
         link_idx = headers.index('link') if 'link' in headers else 2
@@ -50,11 +52,8 @@ def main():
                     continue
                 segment = row[segment_idx].strip().lower()
                 depth = row[depth_idx].strip().lower()
-                l_type = row[type_idx].strip().lower() # <-- Pulling listing type string
+                l_type = row[type_idx].strip().lower() 
                 
-                # =========================================================================================
-                #   UPDATED CUSTOM FILTERS (Diamond + Premium/Featured + For Sale By Agent)
-                # =========================================================================================
                 if segment == 'diamond' and (depth == 'premium' or depth == 'featured') and l_type == 'for_sale_by_agent':
                     p_id = row[id_idx] if id_idx < len(row) else ""
                     title = row[title_idx] if title_idx < len(row) else ""
@@ -62,6 +61,11 @@ def main():
                     img = row[img_idx] if img_idx < len(row) else ""
                     desc = row[desc_idx][:150] if desc_idx < len(row) else ""
                     price = row[price_idx] if price_idx < len(row) else ""
+                    
+                    # Formatting the price correctly for Google Merchant rules (e.g. "500000 EGP")
+                    if price and "egp" not in price.lower():
+                        price = f"{price} EGP"
+                        
                     writer.writerow([p_id, title, link, img, desc, price])
     print("Complete!")
 
