@@ -5,22 +5,42 @@ on:
     - cron: '0 2 * * *' 
   workflow_dispatch: 
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Repository Code
-      uses: actions/checkout@v4
-    - name: Set up Python Environment
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-    - name: Install Network Dependencies
-      run: pip install requests
-    - name: Run Filter Script
-      run: python filter_feed.py
-    - name: Commit and Push Clean Feed to GitHub
-      uses: stefanzweifel/git-auto-commit-action@v5
-      with:
-        commit_message: "Automated Feed Sync: Filtered Diamond Properties"
-        file_pattern: 'clean_display_feed.csv'
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Run Filter Script
+        run: python filter_feed.py
+
+      - name: Save Clean CSV to Repository Bank
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          file_pattern: 'clean_display_feed.csv'
+          commit_message: 'Automated Feed Sync: Populated Custom Catalog Layout'
+
+      - name: Setup Web Server Environment
+        uses: actions/configure-pages@v5
+
+      - name: Package CSV for Live Web Deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.' 
+
+      - name: Force Web Link Update
+        uses: actions/deploy-pages@v4
