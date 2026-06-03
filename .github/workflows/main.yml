@@ -1,9 +1,10 @@
-name: Sync and Filter Property Finder Feed
+name: Generate & Deploy Property Feeds
 
 on:
   schedule:
-    - cron: '0 2 * * *' 
-  workflow_dispatch: 
+    # Runs every day at 2:00 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 permissions:
   contents: write
@@ -11,39 +12,39 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    # FIXED: Added the explicit deployment environment required by actions/deploy-pages
     environment:
       name: github-pages
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pip install requests
 
-      - name: Run Filter Script
+      - name: Run feed filter script
         run: python filter_feed.py
 
-      - name: Save Clean CSV to Repository Bank
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          file_pattern: 'clean_display_feed.csv'
-          commit_message: 'Automated Feed Sync: Populated Custom Catalog Layout'
+      - name: Verify both output files exist and are non-empty
+        run: |
+          echo "=== custom feed ==="
+          wc -l clean_display_feed.csv
+          head -2 clean_display_feed.csv
+          echo "=== page feed ==="
+          wc -l pmax_page_feed.csv
+          head -2 pmax_page_feed.csv
 
-      - name: Setup Web Server Environment
-        uses: actions/configure-pages@v5
-
-      - name: Package CSV for Live Web Deployment
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.' 
-
-      - name: Force Web Link Update
-        uses: actions/deploy-pages@v4
+      - name: Commit updated feed files
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add clean_display_feed.csv pmax_page_feed.csv
+          git diff --staged --quiet || git commit -m "Auto-update feeds $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
