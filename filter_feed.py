@@ -30,6 +30,7 @@ def main():
         
         print(f"Processing data stream for: {internal_filename}")
         with zip_file.open(internal_filename, 'r') as f:
+            # utf-8-sig automatically handles and strips any hidden Byte Order Marks (BOM)
             text_stream = io.TextIOWrapper(f, encoding='utf-8-sig', errors='ignore')
             header_line = text_stream.readline()
             text_stream.seek(0)
@@ -38,13 +39,18 @@ def main():
             tab_count = header_line.count('\t')
             comma_count = header_line.count(',')
             delimiter = '\t' if tab_count > comma_count else ','
-            print(f"Format delimiter detected: {'TAB' if delimiter == '\t' else 'COMMA'}")
+            
+            # FIXED: Avoids backslash inside f-string curly braces
+            delim_name = 'TAB' if delimiter == '\t' else 'COMMA'
+            print(f"Format delimiter detected: {delim_name}")
             
             reader = csv.reader(text_stream, delimiter=delimiter)
             raw_headers = next(reader)
             headers = [str(h).strip().lower() for h in raw_headers]
             
-            # Map index positions using structural keywords
+            print(f"SUCCESS: Read {len(headers)} columns from feed header.")
+            
+            # Robust fuzzy searching for filter columns to completely avoid KeyError/ValueError
             segment_idx = next((i for i, h in enumerate(headers) if 'segment' in h), None)
             depth_idx = next((i for i, h in enumerate(headers) if 'depth' in h), None)
             type_idx = next((i for i, h in enumerate(headers) if 'type' in h and 'property' not in h), None)
