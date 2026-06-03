@@ -40,7 +40,10 @@ def main():
             tab_count = header_line.count('\t')
             comma_count = header_line.count(',')
             delimiter = '\t' if tab_count > comma_count else ','
-            print(f"Format delimiter detected: {'TAB' if delimiter == '\t' else 'COMMA'}")
+            
+            # FIXED PERMANENTLY: Kept outside f-string brackets to guarantee no syntax errors
+            delim_name = 'TAB' if delimiter == '\t' else 'COMMA'
+            print(f"Format delimiter detected: {delim_name}")
             
             header_reader = csv.reader([header_line], delimiter=delimiter)
             raw_headers = next(header_reader)
@@ -62,7 +65,7 @@ def main():
             id_idx = headers.index('id') if 'id' in headers else 0
             title_idx = headers.index('title') if 'title' in headers else 1
             link_idx = headers.index('link') if 'link' in headers else 2
-            img_idx = next((i for i, h in enumerate(headers) if 'image' in h and 'additional' not in h), 3)
+            img_idx = next((i for i, h in enumerate(headers) if 'image_link' in h or ('image' in h and 'additional' not in h)), 3)
             desc_idx = next((i for i, h in enumerate(headers) if 'description' in h or 'desc' in h), 4)
             price_idx = next((i for i, h in enumerate(headers) if h == 'price' or ('price' in h and 'period' not in h and 'change' not in h)), 5)
 
@@ -71,7 +74,7 @@ def main():
             matched_count = 0
             lines_scanned = 0
             
-            # Reverted to standard parsing engine to keep multiline paragraphs grouped safely
+            # Standard sequential engine preserves cell groupings correctly 
             reader = csv.reader(text_stream, delimiter=delimiter)
             
             with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as outfile:
