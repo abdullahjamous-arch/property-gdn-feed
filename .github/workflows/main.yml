@@ -13,6 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # FIXED: Added the explicit deployment environment required by actions/deploy-pages
+    environment:
+      name: github-pages
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
