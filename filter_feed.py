@@ -6,55 +6,54 @@ import requests
 import traceback
 import sys
 
+# Crucial fix for massive feeds: Tells Python to allow giant text fields without crashing
+csv.field_size_limit(2147483647)
+
 FEED_URL = "https://marketingfeeds.propertyfinder.net/eg/en/export/google/full/b5543c8e7a4bfc2ff66636569c135c73473535d37788cf024e2987035b3df4267c3a1f7330ea7d1dcb90f677be73e50de26776e7039b21db4715c1a0d03e8aef"
 OUTPUT_FILE = "clean_display_feed.csv"
 
 def main():
     try:
-        print("Downloading compressed data package...")
-        response = requests.get(FEED_URL, stream=True, timeout=60)
+        print("Downloading compressed data package from Property Finder...")
+        response = requests.get(FEED_URL, stream=True, timeout=90)
         if response.status_code != 200:
             print(f"CRITICAL: Download failed with status code {response.status_code}")
             sys.exit(1)
             
-        print("Reading ZIP archive structure...")
+        print("Opening ZIP archive structure...")
         try:
             zip_file = zipfile.ZipFile(io.BytesIO(response.content))
             internal_filename = zip_file.namelist()[0]
         except zipfile.BadZipFile:
-            print("CRITICAL ERROR: The downloaded file is not a valid ZIP file.")
+            print("CRITICAL ERROR: File downloaded is not a valid ZIP archive. Check if URL changed.")
             sys.exit(1)
         
-        print(f"Opening internal data stream for: {internal_filename}")
+        print(f"Processing data stream for: {internal_filename}")
         with zip_file.open(internal_filename, 'r') as f:
-            # utf-8-sig automatically handles and strips any hidden Byte Order Marks (BOM)
             text_stream = io.TextIOWrapper(f, encoding='utf-8-sig', errors='ignore')
             header_line = text_stream.readline()
             text_stream.seek(0)
             
-            # Smart delimiter selection based on statistical character counts
+            # Identify layout splitting structure
             tab_count = header_line.count('\t')
             comma_count = header_line.count(',')
             delimiter = '\t' if tab_count > comma_count else ','
-            print(f"Detected delimiter: {'TAB' if delimiter == '\t' else 'COMMA'} (Tabs: {tab_count}, Commas: {comma_count})")
+            print(f"Format delimiter detected: {'TAB' if delimiter == '\t' else 'COMMA'}")
             
             reader = csv.reader(text_stream, delimiter=delimiter)
             raw_headers = next(reader)
             headers = [str(h).strip().lower() for h in raw_headers]
             
-            print(f"SUCCESS: Read {len(headers)} columns from feed header.")
-            
-            # Robust fuzzy searching for filter columns to completely avoid KeyError/ValueError
+            # Map index positions using structural keywords
             segment_idx = next((i for i, h in enumerate(headers) if 'segment' in h), None)
             depth_idx = next((i for i, h in enumerate(headers) if 'depth' in h), None)
             type_idx = next((i for i, h in enumerate(headers) if 'type' in h and 'property' not in h), None)
             
             if segment_idx is None or depth_idx is None or type_idx is None:
-                print("CRITICAL ERROR: Could not map the layout columns properly!")
-                print(f"Available headers seen by script: {headers}")
+                print(f"CRITICAL LAYOUT ERROR: Missing filter columns. Headers found: {headers}")
                 sys.exit(1)
 
-            # STANDARD LOWERCASE GOOGLE HEADERS 
+            # Target standard output schema for Google Ads Catalog
             ads_headers = ["id", "title", "link", "image_link", "description", "price"]
             
             id_idx = next((i for i, h in enumerate(headers) if h == 'id'), 0)
@@ -67,11 +66,14 @@ def main():
             max_needed_idx = max(segment_idx, depth_idx, type_idx, id_idx, title_idx, link_idx, img_idx, desc_idx, price_idx)
             
             matched_count = 0
+            lines_scanned = 0
+            
             with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as outfile:
                 writer = csv.writer(outfile)
                 writer.writerow(ads_headers)
                 
                 for row in reader:
+                    lines_scanned += 1
                     if not row or len(row) <= max_needed_idx:
                         continue
                         
@@ -79,14 +81,14 @@ def main():
                     depth = row[depth_idx].strip().lower()
                     l_type = row[type_idx].strip().lower()
                     
-                    # Filter matching: Diamond + (Premium OR Featured) + Buy (Sale)
+                    # Core target match parameters
                     if segment == 'diamond' and (depth == 'premium' or depth == 'featured') and 'sale' in l_type:
                         matched_count += 1
                         p_id = row[id_idx]
                         title = row[title_idx]
                         link = row[link_idx]
                         img = row[img_idx]
-                        desc = row[desc_idx][:150]
+                        desc = row[desc_idx][:145] # Keep descriptions well under string limits
                         price = row[price_idx]
                         
                         if price and "egp" not in price.lower():
@@ -94,10 +96,10 @@ def main():
                             
                         writer.writerow([p_id, title, link, img, desc, price])
                         
-        print(f"Process complete! Filtered and saved {matched_count} matching Buy properties successfully.")
+        print(f"Success! Scanned {lines_scanned} listings. Saved {matched_count} Diamond Buy properties.")
 
     except Exception as e:
-        print("\n--- AN UNEXPECTED CRASH OCCURRED ---")
+        print("\n--- CRASH DIAGNOSTIC LOG ---")
         traceback.print_exc()
         sys.exit(1)
 
