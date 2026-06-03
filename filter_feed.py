@@ -1,118 +1,47 @@
-import io
-import os
-import zipfile
-import csv
-import requests
-import traceback
-import sys
+name: Sync and Filter Property Finder Feed
 
-# High limit patch to handle large property descriptions securely
-csv.field_size_limit(2147483647)
+on:
+  schedule:
+    - cron: '0 2 * * *' # Runs automatically every day at 2:00 AM
+  workflow_dispatch: # Allows you to run it manually anytime
 
-FEED_URL = "https://marketingfeeds.propertyfinder.net/eg/en/export/google/full/b5543c8e7a4bfc2ff66636569c135c73473535d37788cf024e2987035b3df4267c3a1f7330ea7d1dcb90f677be73e50de26776e7039b21db4715c1a0d03e8aef"
-OUTPUT_FILE = "clean_display_feed.csv"
+# Grant explicit administrative permissions to update your public GitHub website link
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
-def main():
-    try:
-        print("Downloading compressed data package from Property Finder...")
-        response = requests.get(FEED_URL, stream=True, timeout=90)
-        if response.status_code != 200:
-            print(f"CRITICAL: Download failed with status code {response.status_code}")
-            sys.exit(1)
-            
-        print("Opening ZIP archive structure...")
-        try:
-            zip_file = zipfile.ZipFile(io.BytesIO(response.content))
-            internal_filename = zip_file.namelist()[0]
-        except zipfile.BadZipFile:
-            print("CRITICAL ERROR: File downloaded is not a valid ZIP archive.")
-            sys.exit(1)
-        
-        print(f"Processing data stream for: {internal_filename}")
-        with zip_file.open(internal_filename, 'r') as f:
-            text_stream = io.TextIOWrapper(f, encoding='utf-8-sig', errors='ignore')
-            
-            header_line = text_stream.readline()
-            if not header_line:
-                print("CRITICAL ERROR: Feed file appears to be completely empty.")
-                sys.exit(1)
-                
-            tab_count = header_line.count('\t')
-            comma_count = header_line.count(',')
-            delimiter = '\t' if tab_count > comma_count else ','
-            
-            # FIXED PERMANENTLY: Kept outside f-string brackets to guarantee no syntax errors
-            delim_name = 'TAB' if delimiter == '\t' else 'COMMA'
-            print(f"Format delimiter detected: {delim_name}")
-            
-            header_reader = csv.reader([header_line], delimiter=delimiter)
-            raw_headers = next(header_reader)
-            headers = [str(h).strip().lower() for h in raw_headers]
-            
-            print(f"SUCCESS: Found {len(headers)} columns in master feed.")
-            
-            segment_idx = headers.index('client_segment') if 'client_segment' in headers else next((i for i, h in enumerate(headers) if 'segment' in h), None)
-            depth_idx = headers.index('listings_depth') if 'listings_depth' in headers else next((i for i, h in enumerate(headers) if 'depth' in h), None)
-            type_idx = headers.index('listing_type') if 'listing_type' in headers else next((i for i, h in enumerate(headers) if 'type' in h and 'property' not in h), None)
-            
-            if segment_idx is None or depth_idx is None or type_idx is None:
-                print("CRITICAL LAYOUT ERROR: Missing matching filter columns.")
-                sys.exit(1)
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-            # CLEAN CUSTOM DYNAMIC FEED HEADERS FOR GOOGLE ADS
-            ads_headers = ["ID", "Item title", "Final URL", "Image URL", "Item description", "Price"]
-            
-            id_idx = headers.index('id') if 'id' in headers else 0
-            title_idx = headers.index('title') if 'title' in headers else 1
-            link_idx = headers.index('link') if 'link' in headers else 2
-            img_idx = next((i for i, h in enumerate(headers) if 'image_link' in h or ('image' in h and 'additional' not in h)), 3)
-            desc_idx = next((i for i, h in enumerate(headers) if 'description' in h or 'desc' in h), 4)
-            price_idx = next((i for i, h in enumerate(headers) if h == 'price' or ('price' in h and 'period' not in h and 'change' not in h)), 5)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-            max_needed_idx = max(segment_idx, depth_idx, type_idx, id_idx, title_idx, link_idx, img_idx, desc_idx, price_idx)
-            
-            matched_count = 0
-            lines_scanned = 0
-            
-            # Standard sequential engine preserves cell groupings correctly 
-            reader = csv.reader(text_stream, delimiter=delimiter)
-            
-            with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as outfile:
-                writer = csv.writer(outfile)
-                writer.writerow(ads_headers)
-                
-                for row in reader:
-                    lines_scanned += 1
-                    if not row or len(row) <= max_needed_idx:
-                        continue
-                        
-                    segment = row[segment_idx].strip().lower()
-                    depth = row[depth_idx].strip().lower()
-                    l_type = row[type_idx].strip().lower()
-                    
-                    # FILTER PARAMETERS: Diamond + (Premium OR Featured) + Buy Listings (for_sale_by_agent)
-                    if segment == 'diamond' and (depth == 'premium' or depth == 'featured') and 'sale' in l_type:
-                        matched_count += 1
-                        p_id = row[id_idx].strip()
-                        title = row[title_idx].strip()
-                        link = row[link_idx].strip()
-                        img = row[img_idx].strip()
-                        desc = row[desc_idx].strip().replace('\n', ' ').replace('\r', ' ')[:145]
-                        price = row[price_idx].strip()
-                        
-                        # Clean numeric format for Google Custom Feed values
-                        clean_price = "".join([c for c in price if c.isdigit() or c == '.'])
-                        
-                        writer.writerow([p_id, title, link, img, desc, clean_price])
-                        
-        print(f"OUTPUT VALIDATION SUMMARY:")
-        print(f"Total listings scanned: {lines_scanned}")
-        print(f"Total clean rows written to CSV: {matched_count}")
+      - name: Install Dependencies
+        run: pip install requests
 
-    except Exception as e:
-        print("\n--- CRASH DIAGNOSTIC LOG ---")
-        traceback.print_exc()
-        sys.exit(1)
+      - name: Run Filter Script
+        run: python filter_feed.py
 
-if __name__ == "__main__":
-    main()
+      - name: Save Clean CSV to Repository Bank
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          file_pattern: 'clean_display_feed.csv'
+          commit_message: 'Automated Feed Sync: Populated Custom Catalog Layout'
+
+      - name: Setup Web Server Environment
+        uses: actions/configure-pages@v5
+
+      - name: Package CSV for Live Web Deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.' # Packages the folder containing your clean file
+
+      - name: Force Web Link Update
+        uses: actions/deploy-pages@v4
